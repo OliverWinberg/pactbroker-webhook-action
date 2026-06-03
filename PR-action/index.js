@@ -32,7 +32,7 @@ async function githubRequest(path, method, body, token) {
 async function run() {
     try {
         const githubToken = getInput("githubToken");
-        const consumerName = getInput("consumerName");
+        const consumerName = getInput("consumerName") || "unknown-consumer";
         const consumerBranch = getInput("consumerVersionBranch");
         const consumerVersion = getInput("consumerVersionNumber");
         const pactUrl = getInput("pactUrl");
@@ -41,12 +41,14 @@ async function run() {
 
         const [owner, repo] = process.env.GITHUB_REPOSITORY.split("/");
 
+        const safeName = consumerName.toLowerCase().replace(/[^a-z0-9]/g, "-");
+        const branchName = `pact-failed/${safeName}-${Date.now()}`;
+
         // Get base branch SHA
         const ref = await githubRequest(`/repos/${owner}/${repo}/git/ref/heads/${baseBranch}`, "GET", null, githubToken);
         const sha = ref.object.sha;
 
         // Create branch
-        const branchName = `pact-failed/${consumerName.toLowerCase().replace(/\s+/g, "-")}-${Date.now()}`;
         await githubRequest(`/repos/${owner}/${repo}/git/refs`, "POST", {
             ref: `refs/heads/${branchName}`,
             sha
@@ -54,8 +56,19 @@ async function run() {
 
         log.info(`Created branch ${branchName}`);
 
+        // Create a file on the branch so GitHub allows a PR
+        const fileContent = Buffer.from(
+            `Contract verification failed for ${consumerName} at ${new Date().toISOString()}\n`
+        ).toString("base64");
+
+        await githubRequest(`/repos/${owner}/${repo}/contents/pact-failures/${safeName}.txt`, "PUT", {
+            message: `[Pact] Contract verification failed: ${consumerName}`,
+            content: fileContent,
+            branch: branchName
+        }, githubToken);
+
         // Create PR
-        const body = [
+        const prBody = [
             `## Contract Verification Failed`,
             ``,
             `The contract published by **${consumerName}** could not be verified by **${providerName}**.`,
@@ -72,7 +85,7 @@ async function run() {
 
         const pr = await githubRequest(`/repos/${owner}/${repo}/pulls`, "POST", {
             title: `[Pact] Contract verification failed: ${consumerName}`,
-            body,
+            body: prBody,
             head: branchName,
             base: baseBranch
         }, githubToken);
