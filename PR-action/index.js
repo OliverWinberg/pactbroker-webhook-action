@@ -1,11 +1,8 @@
-const github = require("@actions/github");
-
 function getInput(name) {
     return process.env[`INPUT_${name.toUpperCase()}`];
 }
 
-const core = {
-    getInput,
+const log = {
     info: console.log,
     setFailed: (message) => {
         console.error(message);
@@ -13,36 +10,51 @@ const core = {
     }
 };
 
+async function githubRequest(path, method, body, token) {
+    const response = await fetch(`https://api.github.com${path}`, {
+        method,
+        headers: {
+            "Authorization": `Bearer ${token}`,
+            "Accept": "application/vnd.github+json",
+            "Content-Type": "application/json"
+        },
+        body: body ? JSON.stringify(body) : undefined
+    });
+
+    if (!response.ok) {
+        const text = await response.text();
+        throw new Error(`GitHub API error ${response.status}: ${text}`);
+    }
+
+    return response.json();
+}
+
 async function run() {
     try {
-        const githubToken = core.getInput("githubToken");
-        const consumerName = core.getInput("consumerName");
-        const consumerBranch = core.getInput("consumerVersionBranch");
-        const consumerVersion = core.getInput("consumerVersionNumber");
-        const pactUrl = core.getInput("pactUrl");
-        const providerName = core.getInput("providerName");
-        const baseBranch = core.getInput("baseBranch");
+        const githubToken = getInput("githubToken");
+        const consumerName = getInput("consumerName");
+        const consumerBranch = getInput("consumerVersionBranch");
+        const consumerVersion = getInput("consumerVersionNumber");
+        const pactUrl = getInput("pactUrl");
+        const providerName = getInput("providerName");
+        const baseBranch = getInput("baseBranch") || "main";
 
-        const octokit = github.getOctokit(githubToken);
         const [owner, repo] = process.env.GITHUB_REPOSITORY.split("/");
 
-        const branchName = `pact-failed/${consumerName.toLowerCase().replace(/\s+/g, "-")}-${Date.now()}`;
-
         // Get base branch SHA
-        const { data: ref } = await octokit.rest.git.getRef({
-            owner,
-            repo,
-            ref: `heads/${baseBranch}`
-        });
+        const ref = await githubRequest(`/repos/${owner}/${repo}/git/ref/heads/${baseBranch}`, "GET", null, githubToken);
+        const sha = ref.object.sha;
 
-        // Create a branch (PR requires a branch, even if no code changes)
-        await octokit.rest.git.createRef({
-            owner,
-            repo,
+        // Create branch
+        const branchName = `pact-failed/${consumerName.toLowerCase().replace(/\s+/g, "-")}-${Date.now()}`;
+        await githubRequest(`/repos/${owner}/${repo}/git/refs`, "POST", {
             ref: `refs/heads/${branchName}`,
-            sha: ref.object.sha
-        });
+            sha
+        }, githubToken);
 
+        log.info(`Created branch ${branchName}`);
+
+        // Create PR
         const body = [
             `## Contract Verification Failed`,
             ``,
@@ -58,19 +70,17 @@ async function run() {
             `Please investigate and resolve the contract mismatch before merging.`
         ].join("\n");
 
-        const { data: pr } = await octokit.rest.pulls.create({
-            owner,
-            repo,
+        const pr = await githubRequest(`/repos/${owner}/${repo}/pulls`, "POST", {
             title: `[Pact] Contract verification failed: ${consumerName}`,
             body,
             head: branchName,
             base: baseBranch
-        });
+        }, githubToken);
 
-        core.info(`PR created: ${pr.html_url}`);
+        log.info(`PR created: ${pr.html_url}`);
 
     } catch (error) {
-        core.setFailed(error?.message || "Unknown error");
+        log.setFailed(error?.message || "Unknown error");
     }
 }
 
