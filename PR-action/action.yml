@@ -1,0 +1,36 @@
+name: Notify Failed Contract Verification
+description: Opens a pull request on the provider repo when a Pact contract verification fails
+ 
+inputs:
+  githubToken:
+    description: GitHub token with permission to create branches and pull requests
+    required: true
+ 
+  providerName:
+    description: Provider name
+    required: true
+ 
+  consumerName:
+    description: Consumer name whose contract failed verification
+    required: true
+ 
+  consumerVersionBranch:
+    description: Branch of the consumer version that published the contract
+    required: true
+ 
+  consumerVersionNumber:
+    description: Version number of the consumer contract
+    required: true
+ 
+  pactUrl:
+    description: URL to the failed contract in Pact Broker
+    required: true
+ 
+  baseBranch:
+    description: Branch to open the PR against
+    required: true
+    default: main
+ 
+runs:
+  using: node20
+  main: index.js
