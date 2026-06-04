@@ -38,6 +38,7 @@ async function run() {
         const pactUrl = getInput("pactUrl");
         const providerName = getInput("providerName");
         const baseBranch = getInput("baseBranch") || "main";
+        const githubActor = getInput("githubActor") || "unknown-actor";
 
         const [owner, repo] = process.env.GITHUB_REPOSITORY.split("/");
 
@@ -79,6 +80,7 @@ async function run() {
             `| Consumer branch | ${consumerBranch} |`,
             `| Consumer version | ${consumerVersion} |`,
             `| Pact URL | ${pactUrl} |`,
+            `| Triggered by | @${githubActor} |`,
             ``,
             `Please investigate and resolve the contract mismatch before merging.`
         ].join("\n");
