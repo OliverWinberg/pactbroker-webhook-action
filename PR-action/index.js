@@ -29,6 +29,19 @@ async function githubRequest(path, method, body, token) {
     return response.json();
 }
 
+async function ensureBranch(owner, repo, branch, fallback, token) {
+    try {
+        await githubRequest(`/repos/${owner}/${repo}/git/refs/heads/${branch}`, "GET", null, token);
+    } catch {
+        const fallbackRef = await githubRequest(`/repos/${owner}/${repo}/git/refs/heads/${fallback}`, "GET", null, token);
+        await githubRequest(`/repos/${owner}/${repo}/git/refs`, "POST", {
+            ref: `refs/heads/${branch}`,
+            sha: fallbackRef.object.sha
+        }, token);
+        log.info(`Created base branch ${branch}`);
+    }
+}
+
 async function run() {
     try {
         const githubToken = getInput("githubToken");
@@ -43,19 +56,19 @@ async function run() {
         const [owner, repo] = process.env.GITHUB_REPOSITORY.split("/");
 
         const safeName = consumerName.toLowerCase().replace(/[^a-z0-9]/g, "-");
-        const branchName = `pact-failed/${safeName}-${Date.now()}`;
+        const date = new Date().toISOString().replace(/[T:]/g, "-").replace(/\..+/, "");
+        const branchName = `pact-failed/${safeName}-${date}`;
 
-        // Get base branch SHA
-        const ref = await githubRequest(`/repos/${owner}/${repo}/git/ref/heads/${baseBranch}`, "GET", null, githubToken);
+       await ensureBranch(owner, repo, baseBranch, "main", githubToken);
+
+        const ref = await githubRequest(`/repos/${owner}/${repo}/git/refs/heads/${baseBranch}`, "GET", null, githubToken);
         const sha = ref.object.sha;
 
-        // Create branch
+        // Create PR branch
         await githubRequest(`/repos/${owner}/${repo}/git/refs`, "POST", {
             ref: `refs/heads/${branchName}`,
             sha
         }, githubToken);
-
-        log.info(`Created branch ${branchName}`);
 
         // Create a file on the branch so GitHub allows a PR
         const fileContent = Buffer.from(
